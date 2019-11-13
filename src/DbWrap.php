@@ -19,10 +19,10 @@ use RuntimeException;
 abstract class DbWrap
 {
 	/** @var PDO */
-	private $pdo;
+	protected $pdo;
 
 	/** @var array */
-	private static $pdoDefaultOptions = [
+	protected static $pdoDefaultOptions = [
 		PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
 		PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8",
 		PDO::ATTR_EMULATE_PREPARES   => false
@@ -124,27 +124,9 @@ abstract class DbWrap
 			throw new InvalidArgumentException('Parameter $orderBy has to be NULL or an array.');
 		}
 		$query = "SELECT * FROM $table ";
-		if (!empty($criteria))
-		{
-			$query .= "WHERE ";
-			foreach ($criteria as $column => $value)
-			{
-				$query .= "`$column` = :$column AND ";
-			}
-			$query = Strings::substring($query, 0, Strings::length($query) - 4);
-			$query .= " ";
-		}
-		if (!empty($orderBy))
-		{
-			$query .= "ORDER BY ";
-			foreach ($orderBy as $column => $direction)
-			{
-				$query .= "`$column` $direction, ";
-			}
-			$query = Strings::substring($query, 0, Strings::length($query) - 2);
-			$query .= " ";
-		}
-		$query .= "LIMIT 1";
+		$query = $this->appendCriteriaToQuery($query, $criteria);
+		$query = $this->appendOrderByToQuery($query, $orderBy);
+		$query = $this->appendLimitAndOffset($query, 1);
 		return $this->fetchFirstRow($query, $criteria);
 	}
 
@@ -179,34 +161,9 @@ abstract class DbWrap
 			throw new InvalidArgumentException('Parameter $offset could not be parsed to an integer.');
 		}
 		$query = "SELECT * FROM $table ";
-		if (!empty($criteria))
-		{
-			$query .= "WHERE ";
-			foreach ($criteria as $column => $value)
-			{
-				$query .= "`$column` = :$column AND ";
-			}
-			$query = Strings::substring($query, 0, Strings::length($query) - 4);
-			$query .= " ";
-		}
-		if (!empty($orderBy))
-		{
-			$query .= "ORDER BY ";
-			foreach ($orderBy as $column => $direction)
-			{
-				$query .= "`$column` $direction, ";
-			}
-			$query = Strings::substring($query, 0, Strings::length($query) - 2);
-			$query .= " ";
-		}
-		if ($limit !== null)
-		{
-			$query .= "LIMIT $limit ";
-		}
-		if ($offset !== null)
-		{
-			$query .= "OFFSET $offset";
-		}
+		$query = $this->appendCriteriaToQuery($query, $criteria);
+		$query = $this->appendOrderByToQuery($query, $orderBy);
+		$query = $this->appendLimitAndOffset($query, $limit, $offset);
 		return $this->fetchAll($query, $criteria);
 	}
 
@@ -226,15 +183,7 @@ abstract class DbWrap
 			throw new InvalidArgumentException('Parameter $orderBy has to be NULL or an array.');
 		}
 		$query = "SELECT * FROM $table ";
-		if (!empty($orderBy))
-		{
-			$query .= "ORDER BY ";
-			foreach ($orderBy as $column => $direction)
-			{
-				$query .= "`$column` $direction, ";
-			}
-			$query = Strings::substring($query, 0, Strings::length($query) - 2);
-		}
+		$query = $this->appendOrderByToQuery($query, $orderBy);
 		return $this->fetchAll($query);
 	}
 
@@ -254,16 +203,7 @@ abstract class DbWrap
 			throw new InvalidArgumentException('Parameter $criteria has to be NULL or an array.');
 		}
 		$query = "SELECT COUNT(*) FROM $table ";
-		if (!empty($criteria))
-		{
-			$query .= "WHERE ";
-			foreach ($criteria as $column => $value)
-			{
-				$query .= "`$column` = :$column AND ";
-			}
-			$query = Strings::substring($query, 0, Strings::length($query) - 4);
-			$query .= " ";
-		}
+		$query = $this->appendCriteriaToQuery($query, $criteria);
 		return $this->fetchFirstColumn($query, $criteria);
 	}
 
@@ -341,26 +281,7 @@ abstract class DbWrap
 			throw new InvalidArgumentException('Parameter $batchSize has to be NULL or an integer.');
 		}
 		$query = "SELECT * FROM $table ";
-		if (!empty($criteria))
-		{
-			$query .= "WHERE ";
-			foreach ($criteria as $column => $value)
-			{
-				$query .= "`$column` = :$column AND ";
-			}
-			$query = Strings::substring($query, 0, Strings::length($query) - 4);
-			$query .= " ";
-		}
-		if (!empty($criteria))
-		{
-			$query .= "WHERE ";
-			foreach ($criteria as $column => $value)
-			{
-				$query .= "`$column` = :$column AND ";
-			}
-			$query = Strings::substring($query, 0, Strings::length($query) - 4);
-			$query .= " ";
-		}
+		$this->appendCriteriaToQuery($query, $criteria);
 		if (!empty($orderBy))
 		{
 			$query .= "ORDER BY ";
@@ -397,7 +318,7 @@ abstract class DbWrap
 		$index = 0;
 		do
 		{
-			$limitedQuery = $query .= " LIMIT $batchSize OFFSET " . ($index * $batchSize);
+			$limitedQuery = $this->appendLimitAndOffset($query, $batchSize, ($index * $batchSize));
 			$index++;
 			$result = $this->fetchAll($limitedQuery, $parameters);
 			if (!empty($result))
@@ -589,5 +510,112 @@ abstract class DbWrap
 		{
 			throw new RuntimeException(sprintf("Executing query '%s' was not successful.", $query));
 		}
+	}
+
+	/**
+	 * @param string $query
+	 * @param array  $criteria
+	 * @return string
+	 */
+	protected function appendCriteriaToQuery($query, $criteria)
+	{
+		if (Strings::isNullOrWhiteSpace($query))
+		{
+			throw new InvalidArgumentException('Parameter $query cannot be NULL, empty string ("") or only white-space characters.');
+		}
+		if (!is_array($criteria))
+		{
+			throw new InvalidArgumentException('Parameter $criteria has to be an array.');
+		}
+		if (!empty($criteria))
+		{
+			$query = $this->appendWhiteSpaceIfNecessary($query);
+			$query .= "WHERE ";
+			foreach ($criteria as $column => $value)
+			{
+				$query .= "`$column` = :$column AND ";
+			}
+			$query = Strings::substring($query, 0, Strings::length($query) - 4);
+		}
+		return $query;
+	}
+
+	/**
+	 * @param string     $query
+	 * @param array|null $orderBy
+	 * @return string
+	 */
+	protected function appendOrderByToQuery($query, $orderBy = null)
+	{
+		if (Strings::isNullOrWhiteSpace($query))
+		{
+			throw new InvalidArgumentException('Parameter $query cannot be NULL, empty string ("") or only white-space characters.');
+		}
+		if (!is_array($orderBy) && $orderBy != null)
+		{
+			throw new InvalidArgumentException('Parameter $orderBy has to be NULL or an array.');
+		}
+		if (!empty($orderBy))
+		{
+			$query = $this->appendWhiteSpaceIfNecessary($query);
+			$query .= "ORDER BY ";
+			foreach ($orderBy as $column => $direction)
+			{
+				$query .= "`$column` $direction, ";
+			}
+			$query = Strings::substring($query, 0, Strings::length($query) - 2);
+			$query .= " ";
+		}
+		return $query;
+	}
+
+	/**
+	 * @param string   $query
+	 * @param int|null $limit
+	 * @param int|null $offset
+	 * @return string
+	 */
+	protected function appendLimitAndOffset($query, $limit = null, $offset = null)
+	{
+		if (Strings::isNullOrWhiteSpace($query))
+		{
+			throw new InvalidArgumentException('Parameter $query cannot be NULL, empty string ("") or only white-space characters.');
+		}
+		if ($limit !== null && !Scalars::tryParse($limit, $limit, Scalars::INTEGER))
+		{
+			throw new InvalidArgumentException('Parameter $limit could not be parsed to an integer.');
+		}
+		if ($offset !== null && !Scalars::tryParse($offset, $offset, Scalars::INTEGER))
+		{
+			throw new InvalidArgumentException('Parameter $offset could not be parsed to an integer.');
+		}
+		if ($limit !== null)
+		{
+			$query = $this->appendWhiteSpaceIfNecessary($query);
+			$query .= "LIMIT $limit ";
+		}
+		if ($offset !== null)
+		{
+			$query = $this->appendWhiteSpaceIfNecessary($query);
+			$query .= "OFFSET $offset ";
+		}
+		return $query;
+	}
+
+	/**
+	 * @param string $query
+	 * @return string
+	 */
+	protected function appendWhiteSpaceIfNecessary($query)
+	{
+		if (Strings::isNullOrWhiteSpace($query))
+		{
+			throw new InvalidArgumentException('Parameter $query cannot be NULL, empty string ("") or only white-space characters.');
+		}
+		if (!Strings::endsWith($query, " "))
+		{
+			$query .= " ";
+		}
+		return $query;
 	}
 }
