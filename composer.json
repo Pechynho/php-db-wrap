@@ -1,0 +1,25 @@
+{
+  "name": "pechynho/php-db-wrap",
+  "description": "Database wrapper using PDO for PHP.",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Jan Pech",
+      "email": "pechynho@gmail.com"
+    }
+  ],
+  "require": {
+    "php": "^5.6",
+    "pechynho/php-utils": "dev-old-php@dev"
+  },
+  "autoload": {
+    "psr-4": {
+      "Pechynho\\DbWrap\\": "src/"
+    }
+  },
+  "config": {
+    "platform": {
+      "php": "5.6.40"
+    }
+  }
+}
