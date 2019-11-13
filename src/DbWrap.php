@@ -281,17 +281,8 @@ abstract class DbWrap
 			throw new InvalidArgumentException('Parameter $batchSize has to be NULL or an integer.');
 		}
 		$query = "SELECT * FROM $table ";
-		$this->appendCriteriaToQuery($query, $criteria);
-		if (!empty($orderBy))
-		{
-			$query .= "ORDER BY ";
-			foreach ($orderBy as $column => $direction)
-			{
-				$query .= "`$column` $direction, ";
-			}
-			$query = Strings::substring($query, 0, Strings::length($query) - 2);
-			$query .= " ";
-		}
+		$query = $this->appendCriteriaToQuery($query, $criteria);
+		$query = $this->appendOrderByToQuery($query, $orderBy);
 		return $this->iterateQuery($query, $criteria, $batchSize);
 	}
 

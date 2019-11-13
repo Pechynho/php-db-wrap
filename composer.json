@@ -10,7 +10,8 @@
   ],
   "require": {
     "php": "^5.6",
-    "pechynho/php-utils": "dev-old-php@dev"
+    "pechynho/php-utils": "dev-old-php@dev",
+    "ext-pdo": "*"
   },
   "autoload": {
     "psr-4": {
