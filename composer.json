@@ -10,7 +10,7 @@
   ],
   "require": {
     "php": "^5.6",
-    "pechynho/php-utils": "dev-old-php@dev",
+    "pechynho/php-utils": "0.0.1",
     "ext-pdo": "*"
   },
   "autoload": {
