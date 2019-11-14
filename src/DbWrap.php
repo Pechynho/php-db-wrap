@@ -478,7 +478,7 @@ abstract class DbWrap
 		$statement = $this->pdo->prepare($query);
 		if (!empty($parameters))
 		{
-			foreach ($parameters as $name => $value)
+			foreach ($parameters as $name => &$value)
 			{
 				if (!Strings::startsWith($name, ":"))
 				{
