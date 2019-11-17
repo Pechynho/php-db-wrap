@@ -377,8 +377,8 @@ abstract class DbWrap
 	 * @param string $table
 	 * @param string $owningColumnName
 	 * @param string $inverseColumnName
-	 * @param int    $owningID
-	 * @param int[]  $inverseIDs
+	 * @param mixed  $owningID
+	 * @param array  $inverseIDs
 	 */
 	public function updateManyToMany($table, $owningColumnName, $inverseColumnName, $owningID, array $inverseIDs)
 	{
@@ -394,30 +394,35 @@ abstract class DbWrap
 		{
 			throw new InvalidArgumentException('Parameter $inverseColumnName cannot be NULL, empty string ("") or only white-space characters.');
 		}
-		if (!Scalars::tryParse($owningID, $owningID, Scalars::INTEGER))
-		{
-			throw new InvalidArgumentException('Parameter $owningID has to be an integer.');
-		}
-		if (empty($inverseIDs))
-		{
-			throw new InvalidArgumentException('Parameter $inverseIDs has to be non-empty array containing integer values.');
-		}
-		$originalInverseIDs = Arrays::select($this->fetchAll("SELECT $inverseColumnName FROM $table WHERE $owningColumnName = $owningID"), "[$inverseColumnName]");
+		$originalInverseIDs = $this->fetchAll("SELECT $inverseColumnName FROM $table WHERE  $owningColumnName = :owningId", ["owningId" => $owningID]);
+		$originalInverseIDs = Arrays::select($originalInverseIDs, "[$inverseColumnName]");
 		$IDsToDelete = array_diff($originalInverseIDs, $inverseIDs);
-		$IDsToAdd = array_merge($inverseIDs, $originalInverseIDs);
+		$IDsToAdd = array_diff($inverseIDs, $originalInverseIDs);
 		$query = "START TRANSACTION;";
+		$parameters = ["owningId" => $owningID];
 		if (!empty($IDsToDelete))
 		{
-			$query .= "DELETE FROM $table WHERE $owningColumnName = $owningID AND $inverseColumnName IN (" . Strings::join($IDsToDelete, ",") . ");";
+			$query .= "DELETE FROM $table WHERE $owningColumnName = :owningId AND $inverseColumnName IN (";
+			$i = 0;
+			foreach ($IDsToDelete as $deleteID)
+			{
+				$query .= ":inverseId_delete_$i, ";
+				$parameters["inverseId_delete_$i"] = $deleteID;
+				$i++;
+			}
+			$query = Strings::remove($query, Strings::length($query) - 2) . ");";
 		}
 		if (!empty($IDsToAdd))
 		{
+			$i = 0;
 			foreach ($IDsToAdd as $inverseID)
 			{
-				$query .= "INSERT INTO $table ($owningColumnName, $inverseColumnName) VALUES ($owningID, $inverseID);";
+				$query .= "INSERT INTO $table ($owningColumnName, $inverseColumnName) VALUES (:owningId, :inverseId_insert_$i);";
+				$parameters["inverseId_insert_$i"] = $inverseID;
+				$i++;
 			}
 		}
-		$query = "COMMIT;";
+		$query .= "COMMIT;";
 		if (!empty($IDsToDelete) || !empty($IDsToAdd))
 		{
 			$this->executeNonQuery($query);
