@@ -104,7 +104,7 @@ abstract class DbWrap
 	 */
 	public function hasActiveTransaction()
 	{
-		return $this->pdo->inTransaction() === 1;
+		return $this->pdo->inTransaction();
 	}
 
 	/**
