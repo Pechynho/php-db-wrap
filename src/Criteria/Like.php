@@ -42,7 +42,7 @@ class Like extends AbstractCriterion
 	 */
 	public function buildExpression()
 	{
-		$expression = "{$this->getColumnForExpression()} LIKE :{$this->column}";
+		$expression = "{$this->getColumnForExpression()} LIKE :{$this->getParameterName()}";
 		return $expression;
 	}
 
@@ -54,7 +54,7 @@ class Like extends AbstractCriterion
 		$value = $this->mode == Like::CONTAINS ? "%" . $this->value . "%" : $this->value;
 		$value = $this->mode == Like::ENDS_WITH ? "%" . $value : $value;
 		$value = $this->mode == Like::STARTS_WITH ? $value . "%" : $value;
-		return [$this->column => $value];
+		return [$this->getParameterName() => $value];
 	}
 
 	/**

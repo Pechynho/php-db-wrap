@@ -3,6 +3,8 @@
 
 namespace Pechynho\DbWrap\Criteria;
 
+use Pechynho\Utility\Strings;
+
 /**
  * @author Jan Pech <pechynho@gmail.com>
  */
@@ -71,5 +73,18 @@ abstract class AbstractCriterion implements ICriterion
 		}
 		$columnForExpression .= $this->column;
 		return $columnForExpression;
+	}
+
+	/**
+	 * @return string
+	 */
+	protected function getParameterName()
+	{
+		$parameterName = $this->column;
+		if (Strings::contains($parameterName, "."))
+		{
+			$parameterName = Strings::replace($parameterName, ".", "_");
+		}
+		return $parameterName;
 	}
 }

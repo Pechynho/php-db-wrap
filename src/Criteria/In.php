@@ -68,7 +68,7 @@ class In extends AbstractCriterion
 		$index = 1;
 		foreach ($this->values as $value)
 		{
-			$parameterName = $this->column . "_" . $index;
+			$parameterName = $this->getParameterName() . "_" . $index;
 			$this->parameters[$parameterName] = $value;
 			$index++;
 		}

@@ -13,7 +13,9 @@ use Pechynho\DbWrap\Criteria\AbstractCriterion;
 use Pechynho\DbWrap\Criteria\Equals;
 use Pechynho\DbWrap\Criteria\ICriterion;
 use Pechynho\DbWrap\Criteria\IsNull;
+use Pechynho\DbWrap\Join\AbstractJoin;
 use Pechynho\Utility\Arrays;
+use Pechynho\Utility\ParamsChecker;
 use Pechynho\Utility\Scalars;
 use Pechynho\Utility\Strings;
 use RuntimeException;
@@ -26,6 +28,15 @@ abstract class DbWrap
 	/** @var PDO */
 	protected $pdo;
 
+	/** @var PDOStatement|null */
+	protected $lastStatement = null;
+
+	/** @var string|null */
+	protected $lastQuery = null;
+
+	/** @var array|null */
+	protected $lastParameters = null;
+
 	/** @var array */
 	protected static $pdoDefaultOptions = [
 		PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
@@ -37,7 +48,7 @@ abstract class DbWrap
 	 * DbWrap constructor.
 	 * @param PDO $pdo
 	 */
-	public function __construct(PDO $pdo)
+	public function __construct($pdo)
 	{
 		$this->pdo = $pdo;
 	}
@@ -77,88 +88,114 @@ abstract class DbWrap
 	}
 
 	/**
-	 * @param string       $table
-	 * @param string|array $columns
-	 * @param array|null   $criteria
-	 * @param array|null   $groupBy
-	 * @param array|null   $orderBy
-	 * @param int|null     $limit
-	 * @param int|null     $offset
-	 * @return array
+	 * @return void
 	 */
-	public function select($table, $columns = "*", array $criteria = null, array $groupBy = null, array $orderBy = null, $limit = null, $offset = null)
+	public function beginTransaction()
 	{
-		if (Strings::isNullOrWhiteSpace($table))
+		if ($this->hasActiveTransaction())
 		{
-			throw new InvalidArgumentException('Parameter $table cannot be NULL, empty string ("") or only white-space characters.');
+			throw new RuntimeException(sprintf("%s instance used by this instance of class %s is already in transaction.", PDO::class, DbWrap::class));
 		}
-		if ((!is_string($columns) && !is_array($columns)) || (is_array($columns) && empty($columns)) || (is_string($columns) && $columns != "*"))
-		{
-			throw new InvalidArgumentException('Parameter $columns has to be "*" as string value or non-empty array.');
-		}
-		if ($limit !== null && !Scalars::tryParse($limit, $limit, Scalars::INTEGER))
-		{
-			throw new InvalidArgumentException('Parameter $limit could not be parsed to an integer.');
-		}
-		if ($offset !== null && !Scalars::tryParse($offset, $offset, Scalars::INTEGER))
-		{
-			throw new InvalidArgumentException('Parameter $offset could not be parsed to an integer.');
-		}
-		$query = $this->buildSelectQuery($columns);
-		$query = $this->appendWhiteSpaceIfNecessary($query);
-		$query .= "FROM $table ";
-		$query = $this->appendCriteriaToQuery($table, $query, $criteria, $parameters);
-		$query = $this->appendGroupByToQuery($table, $query, $groupBy);
-		$query = $this->appendOrderByToQuery($table, $query, $orderBy);
-		$query = $this->appendLimitAndOffset($query, $limit, $offset);
-		echo($query);
-		return $this->fetchAll($query, $parameters);
+		$this->pdo->beginTransaction();
 	}
 
 	/**
-	 * @param string       $table
-	 * @param string|array $columns
-	 * @param array|null   $criteria
-	 * @param array|null   $groupBy
-	 * @param array|null   $orderBy
-	 * @return array|null
+	 * @return bool
 	 */
-	public function selectOne($table, $columns = "*", array $criteria = null, array $groupBy = null, array $orderBy = null)
+	public function hasActiveTransaction()
 	{
-		if (Strings::isNullOrWhiteSpace($table))
-		{
-			throw new InvalidArgumentException('Parameter $table cannot be NULL, empty string ("") or only white-space characters.');
-		}
-		if ((!is_string($columns) && !is_array($columns)) || (is_array($columns) && empty($columns)) || (is_string($columns) && $columns != "*"))
-		{
-			throw new InvalidArgumentException('Parameter $columns has to be "*" as string value or non-empty array.');
-		}
-		$query = $this->buildSelectQuery($columns);
-		$query = $this->appendWhiteSpaceIfNecessary($query);
-		$query .= "FROM $table ";
-		$query = $this->appendCriteriaToQuery($table, $query, $criteria, $parameters);
-		$query = $this->appendGroupByToQuery($table, $query, $groupBy);
-		$query = $this->appendOrderByToQuery($table, $query, $orderBy);
-		$query = $this->appendLimitAndOffset($query, 1, null);
-		return $this->fetchFirstRow($query, $parameters);
+		return $this->pdo->inTransaction() === 1;
 	}
 
-	public function selectAll($table, $columns = "*", array $criteria = null, array $groupBy = null, array $orderBy = null)
+	/**
+	 * @return void
+	 */
+	public function commitTransaction()
 	{
-		if (Strings::isNullOrWhiteSpace($table))
+		if (!$this->hasActiveTransaction())
 		{
-			throw new InvalidArgumentException('Parameter $table cannot be NULL, empty string ("") or only white-space characters.');
+			throw new RuntimeException(sprintf("%s instance used by this instance of class %s is not in transaction.", PDO::class, DbWrap::class));
 		}
-		if ((!is_string($columns) && !is_array($columns)) || (is_array($columns) && empty($columns)) || (is_string($columns) && $columns != "*"))
+		$this->pdo->commit();
+	}
+
+	/**
+	 * @return void
+	 */
+	public function rollbackTransaction()
+	{
+		if (!$this->hasActiveTransaction())
 		{
-			throw new InvalidArgumentException('Parameter $columns has to be "*" as string value or non-empty array.');
+			throw new RuntimeException(sprintf("%s instance used by this instance of class %s is not in transaction.", PDO::class, DbWrap::class));
 		}
-		$query = $this->buildSelectQuery($columns);
+		$this->pdo->rollBack();
+	}
+
+	/**
+	 * @param string|null $name
+	 * @return int
+	 */
+	public function getLastInsertedId($name = null)
+	{
+		ParamsChecker::isNullOrString($name);
+		return $this->pdo->lastInsertId($name);
+	}
+
+	/**
+	 * @return int
+	 */
+	public function getRowsCountAffectedByLastStatement()
+	{
+		if ($this->lastStatement == null)
+		{
+			throw new RuntimeException(sprintf("No %s was yet performed by this instance of %s.", PDOStatement::class, DbWrap::class));
+		}
+		return $this->lastStatement->rowCount();
+	}
+
+	/**
+	 * @param string              $table
+	 * @param string|array        $columns
+	 * @param array|null          $criteria
+	 * @param AbstractJoin[]|null $joins
+	 * @param array|null          $groupBy
+	 * @param array|null          $orderBy
+	 * @param null                $limit
+	 * @param null                $offset
+	 * @return array
+	 */
+	public function buildSelectQuery($table, $columns = "*", array $criteria = null, array $joins = null, array $groupBy = null, array $orderBy = null, $limit = null, $offset = null)
+	{
+		ParamsChecker::notWhiteSpaceOrNullString('$table', $table, __METHOD__);
+		$query = $this->startSelectQuery($columns);
 		$query = $this->appendWhiteSpaceIfNecessary($query);
-		$query .= "FROM $table ";
-		$query = $this->appendCriteriaToQuery($table, $query, $criteria, $parameters);
-		$query = $this->appendGroupByToQuery($table, $query, $groupBy);
-		$query = $this->appendOrderByToQuery($table, $query, $orderBy);
+		$query = $query . "FROM $table ";
+		$query = $this->appendJoinsToQuery($query, $joins);
+		$query = $this->appendWhiteSpaceIfNecessary($query);
+		$query = $this->appendCriteriaToQuery($query, $criteria, $parameters);
+		$query = $this->appendWhiteSpaceIfNecessary($query);
+		$query = $this->appendGroupByToQuery($query, $groupBy);
+		$query = $this->appendWhiteSpaceIfNecessary($query);
+		$query = $this->appendOrderByToQuery($query, $orderBy);
+		$query = $this->appendWhiteSpaceIfNecessary($query);
+		$query = $this->appendLimitAndOffset($query, $limit, $offset);
+		return ["query" => Strings::trim($query), "parameters" => $parameters];
+	}
+
+	/**
+	 * @param string              $table
+	 * @param string|array        $columns
+	 * @param array|null          $criteria
+	 * @param AbstractJoin[]|null $joins
+	 * @param array|null          $groupBy
+	 * @param array|null          $orderBy
+	 * @param int|null            $limit
+	 * @param int|null            $offset
+	 * @return array
+	 */
+	public function select($table, $columns = "*", array $criteria = null, array $joins = null, array $groupBy = null, array $orderBy = null, $limit = null, $offset = null)
+	{
+		list($query, $parameters) = array_values($this->buildSelectQuery($table, $columns, $criteria, $joins, $groupBy, $orderBy, $limit, $offset));
 		return $this->fetchAll($query, $parameters);
 	}
 
@@ -198,14 +235,7 @@ abstract class DbWrap
 	 */
 	public function findOneBy($table, array $criteria, array $orderBy = null)
 	{
-		if (Strings::isNullOrWhiteSpace($table))
-		{
-			throw new InvalidArgumentException('Parameter $table cannot be NULL, empty string ("") or only white-space characters.');
-		}
-		$query = "SELECT * FROM $table ";
-		$query = $this->appendCriteriaToQuery($table, $query, $criteria, $parameters);
-		$query = $this->appendOrderByToQuery($table, $query, $orderBy);
-		$query = $this->appendLimitAndOffset($query, 1);
+		list($query, $parameters) = array_values($this->buildSelectQuery($table, "*", $criteria, null, null, $orderBy, 1));
 		return $this->fetchFirstRow($query, $parameters);
 	}
 
@@ -219,22 +249,7 @@ abstract class DbWrap
 	 */
 	public function findBy($table, array $criteria, array $orderBy = null, $limit = null, $offset = null)
 	{
-		if (Strings::isNullOrWhiteSpace($table))
-		{
-			throw new InvalidArgumentException('Parameter $table cannot be NULL, empty string ("") or only white-space characters.');
-		}
-		if ($limit !== null && !Scalars::tryParse($limit, $limit, Scalars::INTEGER))
-		{
-			throw new InvalidArgumentException('Parameter $limit could not be parsed to an integer.');
-		}
-		if ($offset !== null && !Scalars::tryParse($offset, $offset, Scalars::INTEGER))
-		{
-			throw new InvalidArgumentException('Parameter $offset could not be parsed to an integer.');
-		}
-		$query = "SELECT * FROM $table ";
-		$query = $this->appendCriteriaToQuery($table, $query, $criteria, $parameters);
-		$query = $this->appendOrderByToQuery($table, $query, $orderBy);
-		$query = $this->appendLimitAndOffset($query, $limit, $offset);
+		list($query, $parameters) = array_values($this->buildSelectQuery($table, "*", $criteria, null, null, $orderBy, $limit, $offset));
 		return $this->fetchAll($query, $parameters);
 	}
 
@@ -245,13 +260,8 @@ abstract class DbWrap
 	 */
 	public function findAll($table, array $orderBy = null)
 	{
-		if (Strings::isNullOrWhiteSpace($table))
-		{
-			throw new InvalidArgumentException('Parameter $table cannot be NULL, empty string ("") or only white-space characters.');
-		}
-		$query = "SELECT * FROM $table ";
-		$query = $this->appendOrderByToQuery($table, $query, $orderBy);
-		return $this->fetchAll($query);
+		list($query, $parameters) = array_values($this->buildSelectQuery($table, "*", null, null, null, $orderBy));
+		return $this->fetchAll($query, $parameters);
 	}
 
 	/**
@@ -261,12 +271,7 @@ abstract class DbWrap
 	 */
 	public function count($table, array $criteria = null)
 	{
-		if (Strings::isNullOrWhiteSpace($table))
-		{
-			throw new InvalidArgumentException('Parameter $table cannot be NULL, empty string ("") or only white-space characters.');
-		}
-		$query = "SELECT COUNT(*) FROM $table ";
-		$query = $this->appendCriteriaToQuery($table, $query, $criteria, $parameters);
+		list($query, $parameters) = array_values($this->buildSelectQuery($table, ["COUNT(*)"], $criteria));
 		return $this->fetchFirstColumn($query, $parameters);
 	}
 
@@ -327,17 +332,7 @@ abstract class DbWrap
 	 */
 	public function iterate($table, array $criteria = null, array $orderBy = null, $batchSize = 500)
 	{
-		if (Strings::isNullOrWhiteSpace($table))
-		{
-			throw new InvalidArgumentException('Parameter $table cannot be NULL, empty string ("") or only white-space characters.');
-		}
-		if (!Scalars::tryParse($batchSize, $batchSize, Scalars::INTEGER))
-		{
-			throw new InvalidArgumentException('Parameter $batchSize has to be NULL or an integer.');
-		}
-		$query = "SELECT * FROM $table ";
-		$query = $this->appendCriteriaToQuery($table, $query, $criteria, $parameters);
-		$query = $this->appendOrderByToQuery($table, $query, $orderBy);
+		list($query, $parameters) = array_values($this->buildSelectQuery($table, "*", $criteria, null, null, $orderBy));
 		return $this->iterateQuery($query, $parameters, $batchSize);
 	}
 
@@ -349,14 +344,8 @@ abstract class DbWrap
 	 */
 	public function iterateQuery($query, array $parameters = null, $batchSize = 500)
 	{
-		if (Strings::isNullOrWhiteSpace($query))
-		{
-			throw new InvalidArgumentException('Parameter $query cannot be NULL, empty string ("") or only white-space characters.');
-		}
-		if (!Scalars::tryParse($batchSize, $batchSize, Scalars::INTEGER))
-		{
-			throw new InvalidArgumentException('Parameter $batchSize has to be NULL or an integer.');
-		}
+		ParamsChecker::notWhiteSpaceOrNullString('$query', $query, __METHOD__);
+		ParamsChecker::isInt('$batchSize', $batchSize, __METHOD__);
 		$index = 0;
 		do
 		{
@@ -382,23 +371,14 @@ abstract class DbWrap
 	 */
 	public function updateManyToMany($table, $owningColumnName, $inverseColumnName, $owningID, array $inverseIDs)
 	{
-		if (Strings::isNullOrWhiteSpace($table))
-		{
-			throw new InvalidArgumentException('Parameter $table cannot be NULL, empty string ("") or only white-space characters.');
-		}
-		if (Strings::isNullOrWhiteSpace($owningColumnName))
-		{
-			throw new InvalidArgumentException('Parameter $owningColumnName cannot be NULL, empty string ("") or only white-space characters.');
-		}
-		if (Strings::isNullOrWhiteSpace($inverseColumnName))
-		{
-			throw new InvalidArgumentException('Parameter $inverseColumnName cannot be NULL, empty string ("") or only white-space characters.');
-		}
+		ParamsChecker::notWhiteSpaceOrNullString('$table', $table, __METHOD__);
+		ParamsChecker::notWhiteSpaceOrNullString('$owningColumnName', $owningColumnName, __METHOD__);
+		ParamsChecker::notWhiteSpaceOrNullString('$inverseColumnName', $inverseColumnName, __METHOD__);
 		$originalInverseIDs = $this->fetchAll("SELECT $inverseColumnName FROM $table WHERE  $owningColumnName = :owningId", ["owningId" => $owningID]);
 		$originalInverseIDs = Arrays::select($originalInverseIDs, "[$inverseColumnName]");
 		$IDsToDelete = array_diff($originalInverseIDs, $inverseIDs);
 		$IDsToAdd = array_diff($inverseIDs, $originalInverseIDs);
-		$query = "START TRANSACTION;";
+		$query = "";
 		$parameters = ["owningId" => $owningID];
 		if (!empty($IDsToDelete))
 		{
@@ -422,10 +402,18 @@ abstract class DbWrap
 				$i++;
 			}
 		}
-		$query .= "COMMIT;";
 		if (!empty($IDsToDelete) || !empty($IDsToAdd))
 		{
-			$this->executeNonQuery($query);
+			$hasActiveTransaction = $this->hasActiveTransaction();
+			if (!$hasActiveTransaction)
+			{
+				$this->beginTransaction();
+			}
+			$this->executeNonQuery($query, $parameters);
+			if (!$hasActiveTransaction)
+			{
+				$this->commitTransaction();
+			}
 		}
 	}
 
@@ -437,18 +425,9 @@ abstract class DbWrap
 	 */
 	public function update($table, array $data, $condition, array $parameters = null)
 	{
-		if (Strings::isNullOrWhiteSpace($table))
-		{
-			throw new InvalidArgumentException('Parameter $table cannot be NULL, empty string ("") or only white-space characters.');
-		}
-		if (empty($data))
-		{
-			throw new InvalidArgumentException('Parameter $data has to be non empty array.');
-		}
-		if (Strings::isNullOrWhiteSpace($condition))
-		{
-			throw new InvalidArgumentException('Parameter $condition cannot be NULL, empty string ("") or only white-space characters.');
-		}
+		ParamsChecker::notWhiteSpaceOrNullString('$table', $table, __METHOD__);
+		ParamsChecker::notEmpty('$data', $data, __METHOD__);
+		ParamsChecker::notWhiteSpaceOrNullString('$condition', $condition, __METHOD__);
 		$query = "UPDATE $table SET ";
 		foreach ($data as $column => $value)
 		{
@@ -467,24 +446,18 @@ abstract class DbWrap
 	 */
 	public function insert($table, array $data, array $duplicateKeyUpdate = null)
 	{
-		if (Strings::isNullOrWhiteSpace($table))
-		{
-			throw new InvalidArgumentException('Parameter $table cannot be NULL, empty string ("") or only white-space characters.');
-		}
-		if (empty($data))
-		{
-			throw new InvalidArgumentException('Parameter $data has to be non empty array.');
-		}
+		ParamsChecker::notWhiteSpaceOrNullString('$table', $table, __METHOD__);
+		ParamsChecker::notEmpty('$data', $data, __METHOD__);
 		$query = "INSERT INTO $table ";
 		$columnString = "";
 		$valuesString = "";
 		foreach ($data as $column => $value)
 		{
-			$columnString .= "$column,";
-			$valuesString .= ":$column,";
+			$columnString .= "$column, ";
+			$valuesString .= ":$column, ";
 		}
-		$columnString = Strings::trimEnd($columnString, [","]);
-		$valuesString = Strings::trimEnd($valuesString, [","]);
+		$columnString = Strings::remove($columnString, Strings::length($columnString) - 2);
+		$valuesString = Strings::remove($valuesString, Strings::length($valuesString) - 2);
 		$query .= "($columnString) VALUES ($valuesString)";
 		if (!empty($duplicateKeyUpdate))
 		{
@@ -506,14 +479,8 @@ abstract class DbWrap
 	 */
 	public function delete($table, $condition, array $parameters = null)
 	{
-		if (Strings::isNullOrWhiteSpace($table))
-		{
-			throw new InvalidArgumentException('Parameter $table cannot be NULL, empty string ("") or only white-space characters.');
-		}
-		if (Strings::isNullOrWhiteSpace($condition))
-		{
-			throw new InvalidArgumentException('Parameter $condition cannot be NULL, empty string ("") or only white-space characters.');
-		}
+		ParamsChecker::notWhiteSpaceOrNullString('$table', $table, __METHOD__);
+		ParamsChecker::notWhiteSpaceOrNullString('$condition', $condition, __METHOD__);
 		$query = "DELETE FROM $table ";
 		$query .= Strings::startsWith(Strings::toUpper($condition), "WHERE") ? $condition : "WHERE $condition";
 		$this->executeNonQuery($query, $parameters);
@@ -526,10 +493,7 @@ abstract class DbWrap
 	 */
 	public function createStatement($query, array $parameters = null)
 	{
-		if (Strings::isNullOrWhiteSpace($query))
-		{
-			throw new InvalidArgumentException('Parameter $query cannot be NULL, empty string ("") or only white-space characters.');
-		}
+		ParamsChecker::notWhiteSpaceOrNullString('$query', $query, __METHOD__);
 		$statement = $this->pdo->prepare($query);
 		if (!empty($parameters))
 		{
@@ -542,7 +506,58 @@ abstract class DbWrap
 				$statement->bindValue($name, $value);
 			}
 		}
+		$this->lastStatement = $statement;
+		$this->lastQuery = $query;
+		$this->lastParameters = $parameters;
 		return $statement;
+	}
+
+	/**
+	 * @param bool $withParameters
+	 * @return string
+	 */
+	public function getLastQuery($withParameters = true)
+	{
+		ParamsChecker::isBool('$withParameters', $withParameters, __METHOD__);
+		if ($this->lastQuery === null)
+		{
+			throw new RuntimeException("No query was yet performed.");
+		}
+		return $this->buildQuery($this->lastQuery, $withParameters ? $this->lastParameters : null);
+	}
+
+	/**
+	 * @param string     $query
+	 * @param array|null $parameters
+	 * @return string|null
+	 */
+	protected function buildQuery($query, array $parameters = null)
+	{
+		$query = $this->lastQuery;
+		if (!empty($parameters))
+		{
+			foreach ($parameters as $name => $value)
+			{
+				if (!Strings::startsWith($name, ":"))
+				{
+					$name = ":" . $name;
+				}
+				if (is_string($value))
+				{
+					$value = $this->pdo->quote($value);
+				}
+				else if (is_bool($value))
+				{
+					$value = (int)$value;
+				}
+				else if (is_null($value))
+				{
+					$value = "NULL";
+				}
+				$query = Strings::replace($query, $name, "$value");
+			}
+		}
+		return $query;
 	}
 
 	/**
@@ -559,12 +574,11 @@ abstract class DbWrap
 	}
 
 	/**
-	 * @param string     $table
 	 * @param string     $query
 	 * @param array|null $groupBy
 	 * @return string
 	 */
-	protected function appendGroupByToQuery($table, $query, array $groupBy = null)
+	protected function appendGroupByToQuery($query, array $groupBy = null)
 	{
 		if (!empty($groupBy))
 		{
@@ -572,7 +586,7 @@ abstract class DbWrap
 			$query .= "GROUP BY ";
 			foreach ($groupBy as $column)
 			{
-				$query .= "$table.$column, ";
+				$query .= "$column, ";
 			}
 			$query = Strings::remove($query, Strings::length($query) - 2);
 			$query .= " ";
@@ -584,7 +598,7 @@ abstract class DbWrap
 	 * @param string $columns
 	 * @return string
 	 */
-	protected function buildSelectQuery($columns = "*")
+	protected function startSelectQuery($columns = "*")
 	{
 		if ((!is_string($columns) && !is_array($columns)) || (is_array($columns) && empty($columns)) || (is_string($columns) && $columns != "*"))
 		{
@@ -605,22 +619,20 @@ abstract class DbWrap
 	}
 
 	/**
-	 * @param string     $table
 	 * @param string     $query
 	 * @param array|null $criteria
 	 * @param array|null $parameters
 	 * @return string
 	 */
-	protected function appendCriteriaToQuery($table, $query, $criteria, &$parameters)
+	protected function appendCriteriaToQuery($query, $criteria, &$parameters)
 	{
 		if (!empty($criteria))
 		{
-			$output = $this->buildCondition($criteria, $table);
-			$parameters = $output["parameters"];
-			$query .= "WHERE ";
-			$query .= $output["query"];
-			$query .= " ";
+			list($condition, $parameters) = array_values($this->buildCondition($criteria));
 			$query = $this->appendWhiteSpaceIfNecessary($query);
+			$query .= "WHERE ";
+			$query .= $condition;
+			$query .= " ";
 		}
 		if (empty($parameters))
 		{
@@ -636,14 +648,11 @@ abstract class DbWrap
 	 */
 	public function buildCondition(array $criteria, $tableOrAlias = null)
 	{
-		if ($tableOrAlias !== null && !is_string($tableOrAlias))
-		{
-			throw new InvalidArgumentException('Parameter $tableOrAlias has to be NULL or string.');
-		}
+		ParamsChecker::isNullOrString('$tableOrAlias', $tableOrAlias, __METHOD__);
 		$parameters = [];
 		$register = [];
-		$query = $this->processCriteria($criteria, $parameters, $register, $tableOrAlias);
-		return ["query" => $query, "parameters" => $parameters];
+		$condition = $this->processCriteria($criteria, $parameters, $register, $tableOrAlias);
+		return ["condition" => $condition, "parameters" => $parameters];
 	}
 
 	/**
@@ -762,12 +771,11 @@ abstract class DbWrap
 	}
 
 	/**
-	 * @param string     $tableName
 	 * @param string     $query
 	 * @param array|null $orderBy
 	 * @return string
 	 */
-	protected function appendOrderByToQuery($tableName, $query, array $orderBy = null)
+	protected function appendOrderByToQuery($query, array $orderBy = null)
 	{
 		if (!empty($orderBy))
 		{
@@ -775,10 +783,32 @@ abstract class DbWrap
 			$query .= "ORDER BY ";
 			foreach ($orderBy as $column => $direction)
 			{
-				$query .= "$tableName.$column $direction, ";
+				$query .= "$column $direction, ";
 			}
 			$query = Strings::substring($query, 0, Strings::length($query) - 2);
 			$query .= " ";
+		}
+		return $query;
+	}
+
+	/**
+	 * @param string              $query
+	 * @param AbstractJoin[]|null $joins
+	 * @return string
+	 */
+	protected function appendJoinsToQuery($query, array $joins = null)
+	{
+		if (!empty($joins))
+		{
+			$query = $this->appendWhiteSpaceIfNecessary($query);
+			foreach ($joins as $join)
+			{
+				if (!$join instanceof AbstractJoin)
+				{
+					throw new InvalidArgumentException(sprintf("Expected instance of %s.", AbstractJoin::class));
+				}
+				$query .= $join->buildQueryPart() . " ";
+			}
 		}
 		return $query;
 	}
@@ -791,6 +821,14 @@ abstract class DbWrap
 	 */
 	protected function appendLimitAndOffset($query, $limit = null, $offset = null)
 	{
+		if ($limit !== null && !Scalars::tryParse($limit, $limit, Scalars::INTEGER))
+		{
+			throw new InvalidArgumentException('Parameter $limit could not be parsed to an integer.');
+		}
+		if ($offset !== null && !Scalars::tryParse($offset, $offset, Scalars::INTEGER))
+		{
+			throw new InvalidArgumentException('Parameter $offset could not be parsed to an integer.');
+		}
 		if ($limit !== null)
 		{
 			$query = $this->appendWhiteSpaceIfNecessary($query);

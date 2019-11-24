@@ -32,7 +32,7 @@ class Between extends AbstractCriterion
 	 */
 	public function buildExpression()
 	{
-		$expression = "({$this->getColumnForExpression()} BETWEEN :{$this->column}_lower_limit AND :{$this->column}_upper_limit)";
+		$expression = "({$this->getColumnForExpression()} BETWEEN :{$this->getParameterName()}_lower_limit AND :{$this->getParameterName()}_upper_limit)";
 		return $expression;
 	}
 
@@ -42,8 +42,8 @@ class Between extends AbstractCriterion
 	public function getParameters()
 	{
 		return [
-			$this->column . "_lower_limit" => $this->lowerLimit,
-			$this->column . "_upper_limit" => $this->upperLimit
+			$this->getParameterName() . "_lower_limit" => $this->lowerLimit,
+			$this->getParameterName() . "_upper_limit" => $this->upperLimit
 		];
 	}
 

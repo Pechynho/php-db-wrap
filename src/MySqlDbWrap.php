@@ -6,6 +6,7 @@ namespace Pechynho\DbWrap;
 
 use InvalidArgumentException;
 use PDO;
+use Pechynho\Utility\ParamsChecker;
 use Pechynho\Utility\Strings;
 
 /**
@@ -22,22 +23,10 @@ class MySqlDbWrap extends DbWrap
 	 */
 	public static function createFromCredentials($host, $database, $username = null, $password = null)
 	{
-		if (Strings::isNullOrWhiteSpace($host))
-		{
-			throw new InvalidArgumentException('Parameter $host cannot be NULL, empty string ("") or only white-space characters.');
-		}
-		if (Strings::isNullOrWhiteSpace($database))
-		{
-			throw new InvalidArgumentException('Parameter $host cannot be NULL, empty string ("") or only white-space characters.');
-		}
-		if ($username !== null && !is_string($username))
-		{
-			throw new InvalidArgumentException('Parameter $username has to be NULL or string.');
-		}
-		if ($password !== null && !is_string($password))
-		{
-			throw new InvalidArgumentException('Parameter $username has to be NULL or string.');
-		}
+		ParamsChecker::notWhiteSpaceOrNullString('$host', $host, __METHOD__);
+		ParamsChecker::notWhiteSpaceOrNullString('$database', $database, __METHOD__);
+		ParamsChecker::isNullOrString('$username', $username, __METHOD__);
+		ParamsChecker::isNullOrString('$password', $password, __METHOD__);
 		$dsn = "mysql:host=$host;port=3306;dbname=$database;charset=utf8";
 		return MySqlDbWrap::createFromDsn($dsn, $username, $password, self::getPdoDefaultOptions());
 	}
@@ -51,22 +40,10 @@ class MySqlDbWrap extends DbWrap
 	 */
 	public static function createFromDsn($dsn, $username = null, $password = null, $options = null)
 	{
-		if (Strings::isNullOrWhiteSpace($dsn))
-		{
-			throw new InvalidArgumentException('Parameter $dsn cannot be NULL, empty string ("") or only white-space characters.');
-		}
-		if ($username !== null && !is_string($username))
-		{
-			throw new InvalidArgumentException('Parameter $username has to be NULL or string.');
-		}
-		if ($password !== null && !is_string($password))
-		{
-			throw new InvalidArgumentException('Parameter $username has to be NULL or string.');
-		}
-		if ($options !== null && !is_array($options))
-		{
-			throw new InvalidArgumentException('Parameter $options has to be NULL or an array.');
-		}
+		ParamsChecker::notWhiteSpaceOrNullString('$host', $dsn, __METHOD__);
+		ParamsChecker::isNullOrString('$username', $username, __METHOD__);
+		ParamsChecker::isNullOrString('$password', $password, __METHOD__);
+		ParamsChecker::isNullOrArray('$options', $options, __METHOD__);
 		$pdo = new PDO($dsn, $username, $password, $options);
 		return new MySqlDbWrap($pdo);
 	}

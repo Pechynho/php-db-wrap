@@ -24,7 +24,7 @@ class NotLike extends Like
 	 */
 	public function buildExpression()
 	{
-		$expression = "{$this->getColumnForExpression()} NOT LIKE :{$this->column}";
+		$expression = "{$this->getColumnForExpression()} NOT LIKE :{$this->getParameterName()}";
 		return $expression;
 	}
 }

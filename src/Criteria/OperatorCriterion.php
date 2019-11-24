@@ -31,7 +31,7 @@ abstract class OperatorCriterion extends AbstractCriterion
 	 */
 	public function buildExpression()
 	{
-		$expression = "{$this->getColumnForExpression()} {$this->operator} :{$this->column}";
+		$expression = "{$this->getColumnForExpression()} {$this->operator} :{$this->getParameterName()}";
 		return $expression;
 	}
 
@@ -40,7 +40,7 @@ abstract class OperatorCriterion extends AbstractCriterion
 	 */
 	public function getParameters()
 	{
-		return [$this->column => $this->value];
+		return [$this->getParameterName() => $this->value];
 	}
 
 	/**
