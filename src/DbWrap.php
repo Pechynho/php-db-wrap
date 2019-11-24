@@ -137,7 +137,7 @@ abstract class DbWrap
 	 */
 	public function getLastInsertedId($name = null)
 	{
-		ParamsChecker::isNullOrString($name);
+		ParamsChecker::isNullOrString('$name', $name, __METHOD__);
 		return $this->pdo->lastInsertId($name);
 	}
 
