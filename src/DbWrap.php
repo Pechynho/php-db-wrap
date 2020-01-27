@@ -554,7 +554,7 @@ abstract class DbWrap
 				{
 					$value = "NULL";
 				}
-				$query = Strings::replace($query, $name, "$value");
+				$query = preg_replace("/({$name})(,|\s+|$|\(|\))/",   "{$value}$2", $query);
 			}
 		}
 		return $query;
@@ -713,20 +713,7 @@ abstract class DbWrap
 				{
 					$oldParameterName = $parameterName;
 					$parameterName = $parameterName . "_" . ($register[$parameterName] - 1);
-					$replaced = false;
-					foreach ([" ", ",", ")"] as $stringEnd)
-					{
-						if (Strings::contains($expression, ":" . $oldParameterName . $stringEnd))
-						{
-							$expression = Strings::replace($expression, ":" . $oldParameterName . $stringEnd, ":" . $parameterName . $stringEnd);
-							$replaced = true;
-							break;
-						}
-					}
-					if (!$replaced)
-					{
-						throw new LogicException("Not implemented.");
-					}
+					$expression = preg_replace("/(:{$oldParameterName})(,|\s+|$|\(|\))/", ":{$parameterName}$2", $expression);
 				}
 				$parameters[$parameterName] = $value;
 			}
