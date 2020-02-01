@@ -533,7 +533,6 @@ abstract class DbWrap
 	 */
 	protected function buildQuery($query, array $parameters = null)
 	{
-		$query = $this->lastQuery;
 		if (!empty($parameters))
 		{
 			foreach ($parameters as $name => $value)
